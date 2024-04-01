@@ -16,7 +16,10 @@
 #    along with this program; if not, write to the Free Software
 #    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
-import sys, string, gzip, os
+import gzip
+import os
+import string
+import sys
 
 b64_list = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 url_headword = "00-database-url"
@@ -63,7 +66,7 @@ def sortnormalize(x):
     with standard comparison."""
     x2 = ''
     for i in range(len(x)):
-        if validdict.has_key(x[i]):
+        if x[i] in validdict:
             x2 += x[i]
     return x2.upper() + "\0" + x.upper()
 
@@ -71,10 +74,11 @@ def sortfunc(x, y):
    """Emulate sort -df."""
    xl = x.split("\0")
    yl = y.split("\0")
-   ret = cmp(xl[0], yl[0])
+   # Replaced cmp (see https://docs.python.org/3.0/whatsnew/3.0.html#ordering-comparisons).
+   ret = (xl[0] > yl[0]) - (xl[0] < yl[0])
    if ret != 0:
        return ret
-   return cmp(xl[1], yl[1])
+   return (xl[1] > yl[1]) - (xl[1] < yl[1])
 
 class DictDB:
     def __init__(self, basename, mode = 'read', quiet = 0):
@@ -122,7 +126,7 @@ class DictDB:
         elif mode == 'write':
             self.indexfile = open(self.indexfilename, "wt")
             if self.usecompression:
-                raise ValueError, "'write' mode incompatible with .dz files"
+                raise ValueError("'write' mode incompatible with .dz files")
             else:
                 self.dictfile = open(self.dictfilename, "wb")
         elif mode == 'update':
@@ -140,7 +144,7 @@ class DictDB:
                     self.dictfile = open(self.dictfilename, "w+b")
             self._initindex()
         else:
-            raise ValueError, "mode must be 'read', 'write', or 'update'"
+            raise ValueError("mode must be 'read', 'write', or 'update'")
 
         #self.writeentry(url_headword + "\n     " + url, [url_headword])
         #self.writeentry(short_headword + "\n     " + shortname,
@@ -150,18 +154,19 @@ class DictDB:
     def _initindex(self):
         """Load the entire index off disk into memory."""
         self.indexfile.seek(0)
-        for line in self.indexfile.xreadlines():
-            splits = line.rstrip().split("\t")
-            if not self.indexentries.has_key(splits[0]):
+        for line in self.indexfile:
+            splits = str(line).rstrip().split("\t")
+            if splits[0] not in self.indexentries:
                 self.indexentries[splits[0]] = []
             self.indexentries[splits[0]].append([b64_decode(splits[1]),
                                                  b64_decode(splits[2])])
+            # print(splits, self.indexentries[splits[0]])
 
     def addindexentry(self, word, start, size):
         """Adds an entry to the index.  word is the relevant word.
         start is the starting position in the dictionary and size is the
         size of the definition; both are integers."""
-        if not self.indexentries.has_key(word):
+        if word not in self.indexentries:
             self.indexentries[word] = []
         self.indexentries[word].append([start, size])
 
@@ -183,14 +188,14 @@ class DictDB:
 
         Returns a count of the deleted entries."""
 
-        if not self.indexentries.has_key(word):
+        if word not in self.indexentries:
             return 0
         retval = 0
         entrylist = self.indexentries[word]
         for i in range(len(entrylist) - 1, -1, -1):
             # Go backwords so the del doesn't effect the index.
-            if (start == None or start == entrylist[i][0]) and \
-               (size == None or size == entrylist[i][1]):
+            if (start is None or start == entrylist[i][0]) and \
+               (size is None or size == entrylist[i][1]):
                 del(entrylist[i])
                 retval += 1
         if len(entrylist) == 0:         # If we emptied it, del it completely
@@ -252,10 +257,11 @@ class DictDB:
 
         self.update("Processed %d records.\n" % self.count)
 
+        indexlist = []
+
         if dosort:
             self.update("Sorting index: converting")
 
-            indexlist = []
             for word, defs in self.indexentries.items():
                 for thisdef in defs:
                     indexlist.append("%s\t%s\t%s" % (word,
@@ -267,7 +273,7 @@ class DictDB:
             sortmap = {}
             for entry in indexlist:
                 norm = sortnormalize(entry)
-                if sortmap.has_key(norm):
+                if norm in sortmap:
                     sortmap[norm].append(entry)
                     sortmap[norm].sort(sortfunc)
                 else:
@@ -279,7 +285,7 @@ class DictDB:
 
             self.update(" sorting")
 
-            normalizedentries.sort()
+            normalizedentries = sorted(normalizedentries)
 
             self.update(" re-mapping")
             indexlist = []
@@ -311,7 +317,7 @@ class DictDB:
         return self.indexentries.keys()
 
     def hasdef(self, word):
-        return self.indexentries.has_key(word)
+        return word in self.indexentries
 
     def getdef(self, word):
         """Given a definition name, returns a list of strings with all
